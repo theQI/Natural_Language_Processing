@@ -1,0 +1,222 @@
+---
+title: 'Linear Regression'
+author: "Laxman Panthi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import the Data
+
+Import the data from the Dutch Lexicon Project `DLP_words.csv`. All materials are from here:
+http://crr.ugent.be/programs-data/lexicon-projects
+
+Variables we are going to use:
+- `rt`: Response Latency to the Lexical Decision Task
+- `subtlex.frequency`: The frequency of the word from the Dutch Subtitle Project.
+- `length`: Length of the word.
+- `POS`: part of speech.
+- `bigram.freq`: Summed frequency of the bigrams in the word (the sum of each two-letter combination frequency). 
+
+```{r importdata}
+library(readxl)
+DLP_words <- read_excel("DLP_words.xlsx")
+```
+
+## Load the Libraries + Functions
+
+Load all the libraries or functions that you will use to for the rest of the assignment. It is helpful to define your libraries and functions at the top of a report, so that others can know what they need for the report to compile correctly.
+
+```{r libraries}
+library(tidyverse)
+library(Rling)
+library(car)
+library(boot)
+```
+
+## Clean Up Part of Speech
+
+Update the part of speech variable so that the Nouns are the comparison category. Here's what the labels mean:
+
+ADJ - Adjective
+N - Noun
+WW - Verbs
+
+```{r pos}
+table(DLP_words$POS)
+#bring Noun to the first of the comparison
+DLP_words$POS <- factor(DLP_words$POS,
+                        levels = c("N","ADJ","WW"),
+                        labels=c("Noun","Adjective","verb"))
+table(DLP_words$POS)
+
+#there are some missing DV that needs to be cleaned
+DLP_words <- DLP_words%>%filter(rt!="NA")
+#also convert DV to numerical
+DLP_words$rt <- as.numeric(DLP_words$rt)
+```
+
+## Deal with Non-Normality
+
+Since we are using frequencies, we should consider the non-normality of frequency. 
+- Include a histogram of the original `subtlex.frequency` column.
+- Log-transform the `subtlex.frequency` column. 
+- Include a histogram of `bigram.freq` - note that it does not appear extremely skewed. 
+
+```{r nonnormal}
+#histogram of the frequency
+hist(DLP_words$subtlex.frequency,breaks=100)
+hist(log(DLP_words$subtlex.frequency),breaks=100)
+#taking log makes it better, creating a new variable with the normalized frequency
+DLP_words$subtlex.frequency.log <- log(DLP_words$subtlex.frequency)
+
+#including plot for bigram.freq
+hist(DLP_words$bigram.freq,breaks=100)
+```
+THe original frequency column is super skewed.
+
+## Create Your Linear Model
+
+See if you can predict response latencies (DV) with the following IVs: subtitle frequency, length, POS, and bigram frequency. 
+
+```{r lmrt}
+model <- lm(rt ~ subtlex.frequency.log+length+POS+bigram.freq,data=DLP_words)
+summary(model)
+```
+
+## Interpret Your Model
+```{r}
+summary(model$residuals)
+```
+
+All the variables are significant. R-squared is not very impressive. That means the variable is not properly explained by the model.
+
+### Coefficients
+```{r}
+options(scipen=999)
+round(summary(model)$coefficients,3)
+```
+
+- Which coefficients are statistically significant? 
+All variables are good.
+
+- What do they suggest predicts response latency? (i.e., give the non-stats interpretation of the coefficients)
+
+Verb has the most positive impact on the DV whereas subtitle frequency has the most negative impact.
+
+- Which coefficients appear to predict the most variance? Calculate the $pr^2$ values below:
+
+```{r pr2}
+t <- summary(model)$coefficients[-1,3]
+pr <- t/sqrt(t^2+model$df.residual)
+pr^2
+```
+Partial correlation tells us which variable is pulling the most weight, the pr2 scores above shows us the subtitle frequency variable pulls the most variance.
+
+- What do the dummy coded POS values mean? Calculate the means of each group below to help you interpret:
+
+```{r posmeans}
+
+```
+
+### Overall Model
+
+- Is the overall model statistically significant?
+- What is the practical importance of the overall model? 
+```{r}
+summary(model)$fstatistic
+summary(model)$r.squared
+```
+The model is statistically significant.
+r squared is not great, it is not explaining the variance of the data as much. Practically not great.
+
+## Diagnostic Tests
+
+### Outliers
+
+Create an influence plot of the model using the `car` library. 
+- Which data points appear to have the most influence on the model?
+
+```{r influence}
+car::influencePlot(model)
+```
+The oitliers are not that prevalant in the model.
+```{r}
+#lets look at the rows with the outliers
+DLP_words[c(357,7613,7790,8542,11030),]
+```
+Most of these words are not simple words.
+
+### Additivity
+
+Do we have additivity in our model?
+- Show that the correlations between predictors is less than .9.
+- Show the VIF values. 
+
+```{r additivity_vif}
+summary(model,correlation = T)$correlation[,-1]
+vif(model)
+```
+All variables are 0.81 or below correlated. VIF above 1 for all variables is good.
+
+### Linearity
+
+Is the model linear? 
+- Include a plot and interpret the output.
+
+```{r qqplot}
+plot(model,which = 2)
+```
+The model kind of goes byond 2 z-score, but is mostly linear.
+
+### Normality 
+
+Are the errors normally distributed?
+- Include a plot and interpret the output. 
+
+```{r normal}
+hist(scale(residuals(model)))
+```
+Standardized residuals has most of the data points around 0. This is pretty good. Normality of the model looks good.
+
+### Homoscedasticity/Homogeneity
+
+Do the errors meet the assumptions of homoscedasticity and homogeneity?
+- Include a plot and interpret the output (either plot option). 
+
+```{r homogs}
+plot(model,which=1)
+```
+
+The residuals and fitted values are pretty close to reach other with residual hovering around 0, homoscadasticity of the model looks ok as the chart is mostly linear.
+
+### Bootstrapping 
+
+Use the function provided from class (included below) and the `boot` library to bootstrap the model you created 1000 times. 
+- Include the estimates of the coefficients from the bootstrapping.
+- Include the confidence intervals for at least one of the predictors (not the intercept).
+- Do our estimates appear stable, given the bootstrapping results? 
+
+Use the following to randomly sample 500 rows of data - generally, you have to have more bootstraps than rows of data, so this code will speed up your assignment. In the `boot` function use: `data = DF[sample(1:nrow(DF), 500, replace=FALSE),]` for the data argument changing DF to the name of your data frame.
+
+```{r boot}
+bootcoef = function(formula, data, indices){
+  d = data[indices, ] #randomize the data by row
+  model = lm(formula, data = d) #run our model
+  return(coef(model)) #give back coefficients
+}
+
+data = DLP_words[sample(1:nrow(DLP_words), 500, replace=FALSE),]
+
+
+boot.coeff = boot(formula=rt ~ subtlex.frequency.log+length+POS+bigram.freq,data=data,statistic=bootcoef,R=10000)
+
+boot.coeff
+```
+
+Bootstrapping not really required for this model. However,
+
+

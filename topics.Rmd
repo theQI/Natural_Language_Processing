@@ -1,0 +1,233 @@
+---
+title: 'Topics Models'
+author: "Laxman Panthi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+For this assignment, you will rework your previous LSA model into a topics model. Note that the first few sections are the same - so use the same data you did before!
+
+## Load the libraries + functions
+
+Load all the libraries or functions that you will use to for the rest of the assignment. It is helpful to define your libraries and functions at the top of a report, so that others can know what they need for the report to compile correctly.
+
+```{r libaries}
+##r chunk
+library(gutenbergr)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(tm)
+library(topicmodels)
+library(tidyverse)
+library(tidytext)
+library(slam)
+library(reticulate)
+use_condaenv("anly540")
+reticulate::py_config()
+```
+
+Load the Python libraries or functions that you will use for that section. 
+
+```{python}
+##python chunk
+import pyLDAvis
+import pyLDAvis.gensim  # don't skip this
+import matplotlib.pyplot as plt
+import gensim
+import gensim.corpora as corpora
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem.porter import PorterStemmer 
+ps = PorterStemmer()
+```
+
+## The Data
+
+You will want to use some books from Project Gutenberg to perform a Latent Semantic Analysis. The code to pick the books has been provided for you, so all you would need to do is *change out* the titles. Be sure to pick different books - these are just provided as an example. Check out the book titles at https://www.gutenberg.org/. 
+
+```{r project_g}
+##r chunk
+##pick some titles from project gutenberg
+titles = c("Love for Love: A Comedy", "Holiday Stories for Young People",
+            "Cutglass and Cudgel", "When I Was a Little Girl")
+
+##read in those books
+books = gutenberg_works(title %in% titles) %>%
+  gutenberg_download(meta_fields = "title") %>% 
+  mutate(document = row_number())
+
+create_chapters = books %>% 
+  group_by(title) %>%
+  mutate(chapter = cumsum(str_detect(text, regex("\\bchapter\\b", ignore_case = TRUE)))) %>% 
+  ungroup() %>%
+  filter(chapter > 0) %>%
+  unite(document, title, chapter) 
+
+by_chapter = create_chapters %>% 
+  group_by(document) %>% 
+  summarise(text=paste(text,collapse=' '))
+```
+
+The `by_chapter` data.frame can be used to create a corpus with `VectorSource` by using the `text` column. 
+
+## Create the Topics Model
+
+Create the corpus for the model in R. 
+
+```{r}
+##r chunk
+# create corpus from a column
+chapter_corpus <- Corpus(VectorSource(by_chapter$text))
+
+```
+
+Clean up the text and create the Document Term Matrix. 
+
+```{r}
+##r chunk 
+#Create the term by document matrix
+import_mat = DocumentTermMatrix(chapter_corpus,
+  control = list(
+    stemming = TRUE,
+    stopwords = TRUE,
+    minWordLength = 3,
+    removeNumbers = TRUE,
+    removePunctuation = TRUE))
+```
+
+Weight the matrix to remove all the high and low frequency words. 
+
+```{r}
+##r chunk
+#weight the space
+import_weight = tapply(import_mat$v / row_sums(import_mat)[import_mat$i], import_mat$j, mean) * log2(nDocs(import_mat) /
+                                                                                                       col_sums(import_mat > 0))
+
+#ignore very frequent and 0 terms
+import_mat = import_mat[, import_weight >= .01]
+import_mat = import_mat[row_sums(import_mat) > 0,]
+```
+
+Run and LDA Fit model (only!).
+
+```{r}
+##r chunk
+##r chunk
+k = 3 #set the number of topics
+
+SEED = 2010 #set a random number 
+
+LDA_fit = LDA(import_mat, k = k, 
+              control = list(seed = SEED))
+```
+
+Create a plot of the top ten terms for each topic.
+
+```{r}
+##r chunk
+#use tidyverse to clean up the the fit     
+LDA_fit_topics = tidy(LDA_fit, matrix = "beta")
+
+#create a top terms 
+top_terms = LDA_fit_topics %>%
+   group_by(topic) %>%
+   top_n(10, beta) %>%
+   ungroup() %>%
+  arrange(topic,-beta)
+
+cleanup = theme(panel.grid.major = element_blank(), 
+                panel.grid.minor = element_blank(), 
+                panel.background = element_blank(), 
+                axis.line.x = element_line(color = "black"),
+                axis.line.y = element_line(color = "black"),
+                legend.key = element_rect(fill = "white"),
+                text = element_text(size = 10))
+#make the plot
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  cleanup +
+  coord_flip()
+```
+
+## Gensim Modeling in Python
+
+Transfer the `by_chapter` to Python and convert it to a list for processing. 
+
+```{python}
+##python chunk
+chapter = list(r.by_chapter["text"])
+chapter[0]
+```
+
+Process the text using Python. 
+
+```{python}
+##python chunk
+##create a spot to save the processed text
+processed_text = []
+
+##loop through each item in the list
+for text in chapter:
+  #lower case
+  text = text.lower()
+  #create tokens
+  text = nltk.word_tokenize(text) 
+  #take out stop words
+  text = [word for word in text if word not in stopwords.words('english')] 
+  #stem the words
+  text = [ps.stem(word = word) for word in text]
+  #add it to our list
+  processed_text.append(text)
+
+processed_text[0]
+```
+
+Create the dictionary and term document matrix in Python.
+
+```{python}
+##python chunk
+#create a dictionary of the words
+dictionary = corpora.Dictionary(processed_text)
+
+#create a TDM
+doc_term_matrix = [dictionary.doc2bow(doc) for doc in processed_text]
+```
+
+Create the LDA Topics model in Python using the same number of topics you picked for the LDA Fit R Model. 
+
+```{python}
+##python chunk
+lda_model = gensim.models.ldamodel.LdaModel(corpus = doc_term_matrix, #TDM
+                                           id2word = dictionary, #Dictionary
+                                           num_topics = 3, 
+                                           random_state = 100,
+                                           update_every = 1,
+                                           chunksize = 100,
+                                           passes = 10,
+                                           alpha = 'auto',
+                                           per_word_topics = True)
+print(lda_model.print_topics())
+```
+
+Create the interactive graphics `html` file. Please note that this file saves in the same folder as your markdown document, and you should upload the knitted file and the LDA visualization html file. 
+
+```{python}
+##python chunk
+vis = pyLDAvis.gensim.prepare(lda_model, doc_term_matrix, dictionary, n_jobs = 1)
+pyLDAvis.save_html(vis, 'LDA_Visualization.html') ##saves the file
+```
+
+## Interpretation
+
+Interpret your space - can you see the differences between books/novels? Explain the results from your analysis (more than one sentence please). 
+  
+
+We created 3 topics from the books, whereas the 3rd topic seemed irrelevant as it explained no variance. Similar result was shown in the LSA as most of the words were very close. This also explains, there is not much difference between the books in question as they sum up to two topic pretty much. The books used for the analysis are mostly fictional books, maybe that was the cause for the similarity.

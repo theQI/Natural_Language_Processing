@@ -1,0 +1,224 @@
+---
+title: 'Latent Semantic Analysis'
+author: "Laxman Panthi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load the libraries + functions
+
+Load all the libraries or functions that you will use to for the rest of the assignment. It is helpful to define your libraries and functions at the top of a report, so that others can know what they need for the report to compile correctly.
+
+```{r libaries}
+##r chunk
+library(gutenbergr)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(tm)
+library(lsa)
+library(LSAfun, quietly = T)
+library(reticulate)
+use_condaenv("anly540")
+reticulate::py_config()
+```
+
+Load the Python libraries or functions that you will use for that section. 
+
+```{python}
+##python chunk
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem.porter import PorterStemmer 
+ps = PorterStemmer()
+
+from gensim import corpora
+from gensim.models import LsiModel
+from gensim.models.coherencemodel import CoherenceModel
+import matplotlib.pyplot as plt
+```
+
+## The Data
+
+You will want to use some books from Project Gutenberg to perform a Latent Semantic Analysis. The code to pick the books has been provided for you, so all you would need to do is *change out* the titles. Be sure to pick different books - these are just provided as an example. Check out the book titles at https://www.gutenberg.org/. 
+
+```{r project_g}
+##r chunk
+##pick some titles from project gutenberg
+titles = c("Love for Love: A Comedy", "Holiday Stories for Young People",
+            "Cutglass and Cudgel", "When I Was a Little Girl")
+
+##read in those books
+books = gutenberg_works(title %in% titles) %>%
+  gutenberg_download(meta_fields = "title") %>% 
+  mutate(document = row_number())
+
+create_chapters = books %>% 
+  group_by(title) %>%
+  mutate(chapter = cumsum(str_detect(text, regex("\\bchapter\\b", ignore_case = TRUE)))) %>% 
+  ungroup() %>%
+  filter(chapter > 0) %>%
+  unite(document, title, chapter) 
+
+by_chapter = create_chapters %>% 
+  group_by(document) %>% 
+  summarise(text=paste(text,collapse=' '))
+
+#by_chapter
+```
+
+The `by_chapter` data.frame can be used to create a corpus with `VectorSource` by using the `text` column. 
+
+## Create the Vector Space
+
+Use `tm_map` to clean up the text. 
+
+```{r}
+##r chunk 
+# create corpus from a column
+chapter_corpus <- Corpus(VectorSource(by_chapter$text))
+
+##r chunk
+#Lower case all words
+chapter_corpus = tm_map(chapter_corpus, tolower) 
+
+#Remove punctuation for creating spaces
+chapter_corpus = tm_map(chapter_corpus, removePunctuation) 
+
+#Remove stop words
+chapter_corpus = tm_map(chapter_corpus, function(x) removeWords(x, stopwords("english")))
+
+#Create the term by document matrix
+chapter_mat = as.matrix(TermDocumentMatrix(chapter_corpus))
+```
+
+Create a latent semantic analysis model in R. 
+
+```{r}
+##r chunk
+#Weight the semantic space
+chapter_weight = lw_logtf(chapter_mat) * gw_idf(chapter_mat)
+
+#Run the SVD
+chapters_lsa = lsa(chapter_weight)
+
+#Convert to textmatrix for coherence
+chapters_lsa = as.textmatrix(chapters_lsa)
+```
+
+Explore the vector space:
+  - Include at least one graphic of the vector space that interests you. 
+  - Include some statistics for your model: coherence, cosine, neighbors, etc. 
+
+```{r}
+#based on 
+coherence(by_chapter$text[2], tvectors = chapters_lsa)
+
+##r chunk
+plot_neighbors("cook", #single word
+               n = 10, #number of neighbors
+               tvectors = chapters_lsa, #matrix space
+               method = "MDS", #PCA or MDS
+               dims = 2) #number of dimensions
+```
+
+### using cosine to check multiple words
+```{r}
+choose.target("cook", #choose word
+              lower = .3, #lower cosine
+              upper = .4, #upper cosine
+              n = 10, #number of related words to get
+              tvectors = chapters_lsa)
+
+```
+
+Transfer the `by_chapter` to Python and convert it to a list for processing. 
+
+```{python}
+##python chunk
+chapter = list(r.by_chapter["text"])
+chapter[0]
+```
+
+Process the text using Python. 
+
+```{python}
+##python chunk
+
+```
+
+Create the dictionary and term document matrix in Python.
+
+```{pythonw}
+##python chunk
+##create a spot to save the processed text
+processed_text = []
+
+##loop through each item in the list
+for text in chapter:
+  #lower case
+  text = text() 
+  #create tokens
+  text = nltk.word_tokenize(text) 
+  #take out stop words
+  text = [word for word in text if word not in stopwords.words('english')] 
+  #stem the words
+  text = [ps.stem(word = word) for word in text]
+  #add it to our list
+  processed_text.append(text)
+
+processed_text[0]
+```
+
+Find the most likely number of dimensions using the coherence functions from the lecture. 
+
+```{pythonw}
+##python chunk
+##python chunk
+#create a dictionary of the words
+dictionary = corpora.Dictionary(processed_text)
+
+#create a TDM
+doc_term_matrix = [dictionary.doc2bow(doc) for doc in processed_text]
+```
+
+Create the LSA model in Python with the optimal number of dimensions from the previous step.
+
+```{pythonw}
+##python chunk
+##figure out the coherence scores
+def compute_coherence_values(dictionary, doc_term_matrix, clean_text, start = 2, stop = 100, step = 2):
+    coherence_values = []
+    model_list = []
+    for num_topics in range(start, stop, step):
+        # generate LSA model
+        model = LsiModel(doc_term_matrix, num_topics=num_topics, id2word = dictionary)  # train model
+        model_list.append(model)
+        coherencemodel = CoherenceModel(model=model, corpus = doc_term_matrix, texts=clean_text, dictionary=dictionary, coherence='u_mass')
+        coherence_values.append(coherencemodel.get_coherence())
+    return model_list, coherence_values
+
+def plot_graph(dictionary, doc_term_matrix, clean_text, start, stop, step):
+    model_list, coherence_values = compute_coherence_values(dictionary, doc_term_matrix, clean_text, start, stop, step)
+    # Show graph
+    x = range(start, stop, step)
+    plt.plot(x, coherence_values)
+    plt.xlabel("Number of Topics")
+    plt.ylabel("Coherence score")
+    plt.legend(("coherence_values"), loc='best')
+    plt.show()
+    
+start,stop,step=2,12,1
+plot_graph(dictionary, doc_term_matrix, processed_text, start, stop, step)
+```
+
+## Interpretation
+
+Interpret your space - can you see the differences between books/novels? Explain the results from your analysis (more than one sentence please). 
+  
+
+Yes, there is a difference between the different books, the books in question being Love for Love: A Comedy & Holiday Stories for Young People.

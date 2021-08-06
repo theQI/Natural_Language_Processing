@@ -1,0 +1,89 @@
+---
+title: 'Getting Started Final Project'
+author: "Laxman Panthi"
+date: "Sys.Date()"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Objective
+
+This project should allow you to apply the information you've learned in the course to a new dataset. While the structure of the final project will be more of a research project, you can use this knowledge to appropriately answer questions in all fields, along with the practical skills of writing a report that others can read. The dataset must be related to language or language processing in some way. You must use an analysis we learned in class. 
+
+Please note that the final project has *more* information in it - this analysis is to get you started. You can change analyses or data between now and the final project. 
+
+### Method - Data - Variables
+
+Explain the data you have selected to study. You can find data through many available corpora or other datasets online (ask for help here for sure!). How was the data collected? Who/what is in the data? Identify what the independent and dependent variables are for the analysis. How do these independent and dependent variables fit into the analyses you selected?
+
+### Statistical Analysis Results
+
+Analyze the data given your statistical plan. Report the appropriate statistics for that analysis (see lecture notes). Include figures! Include the R-chunks so we can see the analyses you ran and output from the study. Note what you are doing in each step. 
+
+On this step, you just need to get started - list out the analysis you are going to use that we have covered already in class. Your data must be languge related! 
+
+Turn in the Rmd file with the data imported and the analyses code started. You do not have to knit the file for this assignment because you are only expected to have some data and code. 
+
+## Load Library
+```{r}
+library(tidyverse)
+```
+
+# Data Exploration
+## Load Data
+```{r}
+data <- read_csv("r_dataisbeautiful_posts.csv")
+str(data)
+```
+
+## Data Description
+id - Unique identifier
+title - Title of the reddit post
+score - Reddit score
+author - Author of the post
+author_flair_text - Author's flair
+removed_by - Who removed the post?
+total_awards_received - Total number of awards
+awarders - Total number of awarders
+created_utc - Created at
+full_link - Link of post
+num_comments - Number of comments
+over_18 - True if not safe for work (nsfw)
+
+
+## Problem
+This is the list of all the post from a subreddit r/dataisbeautiful. One of the important analysis I am seeking to get out of this data is how certain keywords are related to the score of the post.
+
+## Data Preprocessing
+THis data has been downloaded from kaggle and is prone to have several missing values. We will first work on pre processing the data to a usable format.
+```{r}
+# select only the variables we want to look at (take out the link,authr_flair_text,removed_by)
+data_select <- data %>% select(-full_link,-removed_by,-author_flair_text)
+
+#llok for missing values
+data_select%>%summary()
+```
+There's some na in the total awards received, defaulting to zero.
+```{r}
+data_select$total_awards_received <- if_else(is.na(data_select$total_awards_received),0,data_select$total_awards_received)
+
+data_select%>%summary()
+```
+
+
+## Data Exploration
+```{r}
+# posts with most comments
+# posts with most comments
+top_posts <- data_select %>% 
+  arrange(desc(num_comments)) %>% 
+  head(n = 10) %>% 
+  select(title, author, num_comments)
+
+top_posts
+```
+
+

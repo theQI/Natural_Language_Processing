@@ -1,0 +1,243 @@
+---
+title: 'Factor Analysis'
+author: "Laxman Panthi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load the libraries + functions
+
+Load all the libraries or functions that you will use to for the rest of the assignment. It is helpful to define your libraries and functions at the top of a report, so that others can know what they need for the report to compile correctly.
+
+```{r libaries}
+##r chunk
+library(readxl)
+library(Rling)
+library(psych)
+library(reticulate)
+library(tidyverse)
+use_condaenv("anly540")
+reticulate::py_config()
+```
+
+Do the same for the Python libraries you will need. 
+
+```{python}
+##python chunk
+
+#import pandas just in case
+import pandas as pd
+
+#import bartlett test
+from factor_analyzer.factor_analyzer import calculate_bartlett_sphericity
+
+#import kmo
+from factor_analyzer.factor_analyzer import calculate_kmo
+
+#save factor analysis function
+from factor_analyzer import FactorAnalyzer
+
+##import matplotlib
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
+```
+
+## The Data
+
+The data is provided as `liwc_house_conflict.csv`. We collected over 1000 different speeches given on the floor of the US House of Representatives that discussed different war time conflicts with Iraq, Kuwait, Russia, Syria, Iran, and a few others. This data was then processed with the Linguistic Inquiry and Word Count software, which provides a linguistic frequency analysis for many categories. 
+
+You should pick 15-20 categories that you think might cluster together and/or be interesting to examine for their register relatedness. You can learn more about the categories by checking out the attached manual starting on page four. Do not use the "total" categories with their subgroups or you might get a singular matrix error. You might also consider running a quick summary on your choosen categories as well, to make sure they are not effectly zero frequency (i.e., most of the informal language ones will be very small percents due to the location of the speech).
+
+Import your data and create a data frame here with only the categories you are interested in.
+
+```{r thedata}
+##r chunk
+liwc <- read_excel("liwc_house_conflict.xlsx")
+liwc_r <- liwc%>%select(Filename,work,leisure,home,money,relig,death,social,family,friend,female,male,affect,posemo,negemo,anx,anger,sad)
+head(liwc_r)
+```
+I selected the social process, affective process and personal concerns categories for this analysis.
+
+
+Transfer the data over to python to use as well. 
+
+```{python}
+##python chunk
+liwc_py = r.liwc_r
+liwc_py.drop(['Filename'], axis = 1, inplace = True)
+liwc_py.head()
+```
+
+## Before you start
+
+Include Bartlett's test and the KMO statistic to determine if you have adequate correlations and sampling before running an EFA. 
+
+```{r beforeyougo}
+#r chunk 
+correlations = cor(liwc_r[,-1])
+
+# output bartlett
+cortest.bartlett(correlations, n = nrow(liwc_r)) 
+
+#output KMO
+KMO(correlations)
+```
+
+Include Bartlett's test and the KMO statistic from Python. Do they appear to match? 
+
+```{python}
+##python chunk
+
+#calculate bartlett in python
+chi_square_value,p_value = calculate_bartlett_sphericity(liwc_py)
+
+#output the bartlett statistics
+chi_square_value,p_value
+
+#calculate kmo in pythn
+kmo_all,kmo_model=calculate_kmo(liwc_py)
+
+# output kmo statistics
+kmo_all
+kmo_model
+```
+the Bartlett is similar but not the same. KMO statistics are pretty much the same.
+
+## How many factors?
+
+- Explore how many factors you should use.
+  - Include a parallel analysis and scree plot.
+  - Sum the Kaiser criterion.
+  - Go with the smaller number of items or the most agreement between different criteria. 
+
+```{r howmany}
+##r chunk
+##r chunk 
+number_items = fa.parallel(liwc_r[, -1], ##dataset
+                           fm = "ml", ##type of math
+                           fa = "both") #look at both efa/pca
+
+##r chunk 
+sum(number_items$fa.values > 1)
+
+sum(number_items$fa.values > .7)
+
+```
+Parallel analysis shows the number of factors = 6 & number of components = 6. However, the new Kaiser criteria says 3. We will go middle ground and select 4.
+
+
+- Include the scree plot and summation of the eigenvalues from Python. 
+
+```{python}
+##python chunk
+
+fa = FactorAnalyzer(n_factors = len(liwc_py.columns),
+                    rotation = None)
+
+#run an analysis just to get the eigenvalues
+fa.fit(liwc_py)
+
+#view the eigenvalues
+ev,v = fa.get_eigenvalues()
+ev
+
+# getting the sum of ev
+sum(ev > 1)
+
+#greater than .7
+sum(ev > .7)
+# scree plot
+plt.scatter(range(1,liwc_py.shape[1]+1),ev)
+plt.plot(range(1,liwc_py.shape[1]+1),ev)
+plt.title('Scree Plot')
+plt.xlabel('Factors')
+plt.ylabel('Eigenvalue')
+plt.grid()
+plt.show()
+```
+
+Parallel analysis has similar result in python however, the kaiser cruterion is higher.
+
+## Simple structure - run the EFA
+
+- Run the EFA in both R and Python
+  - Include the saved `fa` code, but then be sure to print out the results, so the summary is on your report.
+  - Plot the results from your analysis. 
+
+```{r runit}
+##r chunk
+##save it
+EFA_fit = fa(liwc_r[, -1], #data
+             nfactors = 4, #number of factors
+             rotate = "oblimin", #rotation
+             fm = "ml") #math
+##print it out
+##r chunk 
+EFA_fit$loadings 
+
+#look at the full results
+EFA_fit
+
+##plot the results
+fa.plot(EFA_fit, 
+     labels = colnames(liwc_r[ , -1]))
+
+# fa diagram
+fa.diagram(EFA_fit)
+```
+As expected the similarity of the psychological process with the personal concerns is not seen in the factor analysis. since, there were only 4 factors selected, it was around the psychological process, maybe 5 factors would have explained the variance.
+
+- For Python, run the factor analysis and print out the loadings. Do they appear to have the same results?
+
+```{r}
+##r chunk
+##save it
+EFA_fit = fa(liwc_r[, -1], #data
+             nfactors = 5, #number of factors
+             rotate = "oblimin", #rotation
+             fm = "ml") #math
+##print it out
+##r chunk 
+EFA_fit$loadings 
+
+#look at the full results
+EFA_fit
+
+##plot the results
+fa.plot(EFA_fit, 
+     labels = colnames(liwc_r[ , -1]))
+
+# fa diagram
+fa.diagram(EFA_fit)
+```
+With 5 factors we hit some of the personal concern variables.
+
+```{python}
+##python chunk
+fa.loadings_
+
+fa.get_factor_variance() ##ss, prop, cumulative
+
+```
+THe results are not so similar for the factor of 4.
+
+## Adequate solution
+
+- Examine the fit indice(s). Are they any good? How might you interpret them?
+- Examine the results - what do they appear to tell you? Are there groupings of variables in these analyses that might explain different structures/jargons/registers in language we find in Congress? 
+```{r}
+EFA_fit$rms #Root mean square of the residuals
+
+EFA_fit$RMSEA #root mean squared error of approximation
+
+EFA_fit$TLI #tucker lewis index
+
+```
+Not so bad residuals RMS.
+
+Also, the goodness of fit is at 86%.

@@ -1,0 +1,283 @@
+---
+title: 'Word2Vec'
+author: "Laxman Panthi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load the libraries + functions
+
+Load all the libraries or functions that you will use to for the rest of the assignment. It is helpful to define your libraries and functions at the top of a report, so that others can know what they need for the report to compile correctly.
+
+```{r libaries}
+##r chunk
+library(tidyverse)
+library(reticulate)
+use_condaenv("anly540")
+reticulate::py_config()
+```
+
+Load the Python libraries or functions that you will use for that section. 
+
+```{python}
+##python chunk
+import nltk
+import gensim
+from nltk.corpus import abc
+import pandas as pd
+import numpy as np
+from bs4 import BeautifulSoup
+import re
+from nltk.corpus import stopwords
+from sklearn.metrics import classification_report
+from sklearn.metrics import accuracy_score
+```
+
+## The Data
+
+The dataset is a set of Youtube comments that have been coded as:
+  - 1: spam youtube messages 
+  - 0: good youtube messages
+  - This data is stored in the `CLASS` column
+
+Import the data using either R or Python. I put a Python chunk here because you will need one to import the data, but if you want to first import into R, that's fine. 
+
+### Load data in R
+```{r}
+##r chunk
+data <- read_csv("youtube_spam.csv")
+summary(data)
+head(data)
+```
+
+
+### Move from r to python
+```{python}
+##python chunk
+data_py = r.data
+data_py.head
+```
+
+## Clean up the data
+
+Use one of our clean text functions to clean up the `CONTENT` column in the dataset. 
+
+```{python}
+##python chunk
+REPLACE_BY_SPACE_RE = re.compile('[/(){}\[\]\|@,;]') #remove symbols with space
+BAD_SYMBOLS_RE = re.compile('[^0-9a-z #+_]') #take out symbols altogether
+STOPWORDS = set(stopwords.words('english')) #stopwords
+
+def clean_text(text):
+    text = BeautifulSoup(text, "lxml").text # HTML decoding
+    text = text.lower() # lowercase text
+    text = REPLACE_BY_SPACE_RE.sub(' ', text) # replace REPLACE_BY_SPACE_RE symbols by space in text
+    text = BAD_SYMBOLS_RE.sub('', text) # delete symbols which are in BAD_SYMBOLS_RE from text
+    text = ' '.join(word for word in text.split() if word not in STOPWORDS) # delete stopwors from text
+    return text
+    
+data_py['CONTENT'] = data_py['CONTENT'].apply(clean_text)
+data_py.head()
+```
+
+## Split the data
+
+Split the data into testing and training data.
+
+```{python}
+##python chunk
+##python chunk
+X = data_py['CONTENT']
+y = data_py['CLASS']
+
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state = 42)
+
+```
+
+## Process the data
+
+For FastText and word2vec, create the tokenized vectors of the text.
+
+```{python}
+##python chunk
+tokenized_train = [nltk.tokenize.word_tokenize(text)
+                   for text in X_train.to_list()]
+tokenized_test = [nltk.tokenize.word_tokenize(text)
+                   for text in X_test.to_list()]
+```
+
+## Word2Vec
+
+Build the word2vec model.
+
+```{python}
+##python chunk
+# build word2vec model
+w2v_model = gensim.models.Word2Vec(tokenized_train, 
+                                   size=100, window=6,
+                                   min_count=2, iter=5, workers=4)
+```
+
+## Convert the model
+
+Convert the model into a set of features to use in our classifier. 
+
+```{python}
+##python chunk
+def document_vectorizer(corpus, model, num_features):
+    vocabulary = set(model.wv.index2word)
+    
+    def average_word_vectors(words, model, vocabulary, num_features):
+        feature_vector = np.zeros((num_features,), dtype="float64")
+        nwords = 0.
+        
+        for word in words:
+            if word in vocabulary: 
+                nwords = nwords + 1.
+                feature_vector = np.add(feature_vector, model.wv[word])
+        if nwords:
+            feature_vector = np.divide(feature_vector, nwords)
+
+        return feature_vector
+
+    features = [average_word_vectors(tokenized_sentence, model, vocabulary, num_features)
+                    for tokenized_sentence in corpus]
+    return np.array(features)
+    
+# generate averaged word vector features from word2vec model
+avg_wv_train_features = document_vectorizer(corpus=tokenized_train,
+                                                    model=w2v_model,
+                                                     num_features=100)
+avg_wv_test_features = document_vectorizer(corpus=tokenized_test, 
+                                                    model=w2v_model,
+                                                    num_features=100)
+#define your outcomes
+my_tags = ['0', '1']
+```
+
+## Build a classifier model
+
+In class, we used logistic regression to classify the data. You can use any machine learning algorithm you want here, and build a classification model. 
+
+### Logistic Regression
+
+```{python}
+##python chunk
+#build a log model
+from sklearn.linear_model import LogisticRegression
+logreg = LogisticRegression(solver='lbfgs', multi_class='ovr', max_iter=10000)
+
+#fit the data to the log model
+logreg = logreg.fit(avg_wv_train_features, y_train)
+```
+
+#### Examine the results
+
+Print out the accuracy, recall, and precision of your model.
+
+```{python}
+##python chunk
+#predict new data
+y_pred = logreg.predict(avg_wv_test_features)
+
+#print out results
+print('accuracy %s' % accuracy_score(y_pred, y_test))
+print(classification_report(y_test, y_pred,target_names=my_tags))
+```
+
+### Support Vector Machines
+
+```{python}
+##python chunk
+#build a svm model
+from sklearn.linear_model import SGDClassifier
+
+sgd = Pipeline([('vect', CountVectorizer()),
+                ('tfidf', TfidfTransformer()),
+                ('clf', SGDClassifier(loss='hinge', penalty='l2',alpha=1e-3, random_state=42, max_iter=5, tol=None)),
+               ])
+sgd.fit(X_train, y_train)
+
+%%time
+
+y_pred = sgd.predict(X_test)
+
+print('accuracy %s' % accuracy_score(y_pred, y_test))
+print(classification_report(y_test, y_pred,target_names=my_tags))
+```
+
+#### Examine the results
+
+Print out the accuracy, recall, and precision of your model.
+
+```{python}
+##python chunk
+#predict new data
+y_pred = logreg.predict(avg_wv_test_features)
+
+#print out results
+print('accuracy %s' % accuracy_score(y_pred, y_test))
+print(classification_report(y_test, y_pred,target_names=my_tags))
+```
+
+## Build a FastText model
+
+Using the same data, build a FastText model.
+
+```{python}
+##python chunk
+##python chunk
+from gensim.models.fasttext import FastText
+
+#build a fast test model
+ft_model = FastText(tokenized_train, size=100, window=6, 
+                    min_count=2, iter=5, workers=4)
+```
+
+## Extract the features
+
+Convert the FastText model into features for prediction.
+
+```{python}
+##python chunk
+avg_ft_train_features = document_vectorizer(corpus=tokenized_train, model=ft_model,
+                                                     num_features=100)
+avg_ft_test_features = document_vectorizer(corpus=tokenized_test, model=ft_model,
+                                                    num_features=100)           
+```
+
+## Build a classifier model
+
+Using the same machine learning algorithm as above, build a classifier model that uses the FastText data to predict the categories.
+
+### Logistic Regression
+
+```{python}
+##python chunk
+from sklearn.linear_model import LogisticRegression
+logreg = LogisticRegression(solver='lbfgs', multi_class='ovr', max_iter=10000)
+logreg = logreg.fit(avg_ft_train_features, y_train)
+y_pred = logreg.predict(avg_ft_test_features)
+```
+
+#### Examine the results
+
+Print out the accuracy, recall, and precision of your model.
+
+```{python}
+##python chunk
+print('accuracy %s' % accuracy_score(y_pred, y_test))
+print(classification_report(y_test, y_pred,target_names=my_tags))
+```
+
+## Interpretation 
+
+- Where you able to predict the spam messages from the real comments? 
+- Which model provided you with a better prediction?
+
+Yes. The prediction model was created with 63% accuracy. Both the model had similar accuracy, precision and recall.

@@ -1,0 +1,139 @@
+---
+title: 'Logistic Regression'
+author: "Laxman Panthi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load the Libraries + Functions
+
+Load all the libraries or functions that you will use to for the rest of the assignment. It is helpful to define your libraries and functions at the top of a report, so that others can know what they need for the report to compile correctly.
+
+The data for this project has already been loaded. Here you will be distinguishing between the uses for *let*, *allow*, and *permit*. You should pick two of these verbs to examine and subset the dataset for only those columns. You can use the `droplevels()` function to help drop the empty level after you subset.  
+
+```{r libraries, echo=FALSE}
+library(Rling)
+library(rms)
+library(dplyr)
+library(visreg)
+library(car)
+data(let)
+```
+
+## Description of the Data
+
+```{r}
+head(let)
+```
+
+
+The data is from the COCA: Corpus of Contemporary American English investigating the verb choice of *let*, *allow*, and *permit*. These are permissive constructions that are often paired with the word *to*. Predict the verb choice in the `Verb` column with the following independent variables:
+
+  - Reg: Spok for spoken conversations, Mag for magazine articles. 
+  - Permitter: semantic class of the clause subject, Anim for animate, Inanim for inanimate and Undef for undefined.
+  - Imper: yes for the imperative, no for not.
+  - *Note*: Year is in the dataset, which would be awesome but gave me trouble. You can try adding it if you want. 
+
+## Sample Size Requirements
+
+- Is the split between your choosen verbs even enough to think you could predict them?
+
+```{r samplesize}
+##r chunk
+table(let$Verb)
+```
+The split is pretty good.
+
+## Running a Binary Logistic Regression
+
+- Run the logistic regression using the `rms` package. 
+  - Use the $\chi^2$ test - is the overall model predictive of verb choice? Is it significant?
+  - What is Nagelkerke's pseudo-$R^2$? What does it tell you about goodness of fit?
+  - What is the C statistic? How well are we predicting?
+
+```{r runrms}
+##r chunk
+model = lrm(Verb ~ Reg + Neg + Permitter + Imper, #model formula like lm()
+            data = let)
+model
+```
+
+
+```{r statsrms}
+model$stats
+```
+
+
+### Predictiveness of the model ($\chi^2$ test)
+Chi-square depicts the predictiveness of the model is significant.
+
+### Goodness of Fit (Nagelkerke's pseudo-$R^2$)
+0.43 $R^2$ is not great. That means the model only explains about 43% of the variability of the data.
+
+### C statistic
+C statistic is 0.77, the goodness of fit is acceptable.
+
+
+## Coefficients
+```{r coefficients}
+levels(let$Verb)
+```
+
+- Explain each coefficient - are they significant? What do they imply if they are significant (i.e., which verb does it predict)?
+    - Reg: Not quite significant.
+    - Permitter: Pretty significant and predict the let verb better.
+    - Imper: It's a significant predictor as well and predicts the permit.
+
+## Interactions
+
+- Add the interaction between Imper and Reg by doing `Imper*Reg`, but remember you will need to do a `glm` model.
+- Use the `anova` function to answer if the addition of the interaction was significant.
+  - Is the interaction useful?
+- Use the `visreg` library and funtion to visualize the interaction.
+  - How would you explain that interaction? 
+  
+
+```{r interaction 1}
+data <- let%>%select(-Year)
+model1 <- glm(Verb ~ Reg + Imper + Neg + Permitter, data = data, family = binomial)
+model2 <- glm(Verb ~ Reg * Imper + Neg + Permitter, data = data, family = binomial)
+anova(model1, model2, test="Chisq")
+```
+
+Model 2 is significantly better than the model 1, so the interaction helps definetly.
+
+```{r interaction 2}
+visreg(model2,"Imper",by="Reg")
+```
+For the magazines, the difference between the yes and no is less than spoken.
+
+## Outliers
+
+- Use the `car` library and the `influencePlot()` to create a picture of the outliers. 
+  - Are there major outliers for this data?
+
+```{r outliers}
+influencePlot(model1)
+```
+
+Original model has some outliers.
+
+```{r}
+influencePlot(model2)
+```
+Not too significant outliers.
+
+## Assumptions
+
+- Explore the `vif` values of the original model (not the interaction model) and determine if you meet the assumption of additivity (meaning no multicollinearity). 
+
+```{r vif}
+vif(model)
+```
+The variance influence factor for the variables is well below 5, means no multi-collinearity.
+
+No Python in this section! You will use the functions from this week in a few assignments coming up!

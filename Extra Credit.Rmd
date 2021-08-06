@@ -1,0 +1,146 @@
+---
+title: "Extra Credit 2020"
+author: "Laxman Panthi"
+date: "5/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load R libraries
+library(tidyverse)
+library(openintro)
+library(countrycode)
+library(ggmap)
+```
+## The Problem
+
+The Psychological Science Accelerator (https://psysciacc.org/) is running a large research study on behavioral responses to COVID. On the general questionnaire, we included a few questions on the study about location (country and for USA participants, state). These questions were open-ended because we decided not to translate each possible country into every possible language. 
+
+## The Data
+
+The dataset includes the following variables:
+
+- `unique_id`: the randomly generated id of the participant
+- `item_name`: C0_country included the country of the participant, while C0_state was only shown to USA participants.
+- `answer`: the answer the participant wrote
+- `language`: the language of the study the participant took 
+- `where`: how the data was acquired
+
+## The Goal
+
+We need a set of consistent answers for country and for state. You can use R or Python to process the data, converting all states into their two digit codes (i.e. Texas = TX: https://en.wikipedia.org/wiki/List_of_U.S._state_abbreviations) and each country into its three digit alphanumeric ISO code (alpha-3 code: https://en.wikipedia.org/wiki/List_of_ISO_3166_country_codes). Consider checking out the `countrycode`  and `openintro` packages in R!
+
+Make sure your function works for all types of spellings, coding errors (i.e., not all typed languages download well into csv format), and ways to write out the country (i.e., not everyone is writing in English!). Additionally, expect more countries than the ones listed here. 
+
+## The Second Goal
+
+Once we have this data, we would love to make a map! Can you plot the data for states and countries? Use https://www.littlemissdata.com/blog/maps as a starting point. You would want to exclude the USA for all IDs that have states listed. 
+
+You can use code you find online for this project. You will receive up to 20 extra credit points on an individual assignment - 10 points for each goal. A genuine effort will be given the credit. You can work together with other classmates, but be sure to include everyone's names on your final submission. Everyone in your group should turn in a copy of their answer. 
+
+# Load Data
+```{r}
+data <- read_csv("ec_data.csv")
+head(data)
+```
+
+### GOAL 1
+```{r}
+addClean <- function(answer){
+  answer_clean = toupper(str_replace_all(answer, "[^[:alpha:]]", ""))
+  answer_clean
+}
+
+addCode <- function(answer_clean, item_name) {
+  code = NA
+  
+  #edge case usa
+  if(grepl("united state",answer_clean,ignore.case = T)){
+    answer_clean = "USA"
+  }
+  
+  #edge case gbr
+  if (grepl("scotland",answer_clean,ignore.case = T)){
+    answer_clean = "GBR"
+  }
+  
+    if (grepl("wales",answer_clean,ignore.case = T)){
+    answer_clean = "GBR"
+    }
+  
+    if (grepl("england",answer_clean,ignore.case = T)){
+    answer_clean = "GBR"
+    }
+  
+  # other european language edge cases
+      if (grepl("BELGI",answer_clean,ignore.case = T)){
+    answer_clean = "BELGIUM"
+  }
+
+  if (grepl("MAGYARORSZ",answer_clean,ignore.case = T)){
+    answer_clean = "HUNGARY"
+  }
+  
+    if (grepl("Nederland",answer_clean,ignore.case = T)){
+    answer_clean = "Netherlands"
+  }
+  
+    
+  if (!is.na(answer_clean)) {
+    if (item_name == "C0_state") {
+      if (nchar(answer_clean) == 2) {
+        code = answer_clean
+      } else{
+        code = state2abbr(answer_clean)
+        # if (code=="character(0)") {
+        #   code = "NA"
+        #   }
+      }
+    } else{
+      if (nchar(answer_clean)==3){
+        code = answer_clean
+      } else{
+        code = countrycode(answer_clean,"country.name","iso3c",warn=F,nomatch = "NA")
+      }
+    }
+  }
+  code
+}
+
+data$answer_clean <- mapply(addClean,data$answer)
+
+data$code = mapply(addCode,data$answer_clean,data$item_name)
+
+data_no_match = data%>%filter(code=="NA")
+```
+ 274 out of 8228 records not nmatched, not bad.
+
+
+## Goal 2
+
+```{r}
+deleteID <- data%>%group_by(unique_id)%>%count()%>%filter(n==2)
+
+exclude <- data%>%left_join(deleteID)%>%filter(n==2,item_name=="C0_country")
+
+
+
+mapDF <- data %>% anti_join(exclude)%>%mutate(location=as.character(code))%>%select(unique_id,location)%>%filter(nchar(location)>0)
+
+#cascadeDF = mapDF%>%geocode(location,method='cascade')
+
+#map <- get_googlemap("world")
+
+#locations_df <- mutate_geocode(mapDF, code)
+
+#qmplot(lat, lon, data = locations_df, main = "Heat Map")
+
+
+```
+
+Could not get it working but, it will be similar to this.
+

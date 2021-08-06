@@ -1,0 +1,224 @@
+---
+title: 'Similarity Assignment'
+author: "Laxman Panthi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Create the Data
+
+- One of the corpora here: https://corpus.byu.edu/corpora.asp 
+- Collect two bigrams that you can compare using the association measures listed (does not have to be X-Y, Z-Y, but that would help you compare them)
+- Create a dataframe like the one from lecture of those bigrams
+
+```{r createdata}
+##r chunk
+#collocate table for good (Y) and vibes (X)
+#common to put collexeme on X, lexeme on Y
+a1 = 208
+b1 = 1159 - a1
+c1 = 1130305 - a1  
+d1 = 560000000-a1-b1-c1
+
+##r chunk
+#collocate table for bad (Y) and vibes (X)
+#common to put collexeme on X, lexeme on Y
+a2 = 151
+b2 = 1159 - a2
+c2 = 286891 - a2   
+d2 = 560000000-a2-b2-c2
+
+
+##r chunk
+good = c(a1, b1, c1, d2) 
+bad = c(a2, b2, c2, d2)
+good_bad = as.data.frame(rbind(good,bad))
+colnames(good_bad) = c("a", "b", "c", "d")
+good_bad
+```
+
+## Load the Libraries + Functions
+
+Load all the libraries or functions that you will use to for the rest of the assignment. It is helpful to define your libraries and functions at the top of a report, so that others can know what they need for the report to compile correctly.
+
+```{r libraries}
+##r chunk
+library(Rling)
+library(reticulate)
+use_condaenv("anly540")
+reticulate::py_config()
+```
+
+The python section will load the libraries below.
+
+```{python}
+#python chunk
+import pandas as pd
+import matplotlib.pyplot as plt
+```
+
+
+## Attraction and Reliance
+
+Calculate the attraction for your bigrams.
+
+```{r attract}
+##r chunk
+attraction = good_bad$a/(good_bad$a+good_bad$c)*100
+attraction
+```
+
+Probability of XY given Y. Bad vibes is more popular than Good vibes.
+
+
+Calculate the reliance for your bigrams.
+
+```{r reliance}
+##r chunk
+reliance = good_bad$a/(good_bad$a+good_bad$b)*100
+reliance
+```
+
+Probability of XY given X. Good vibes is more popular.
+
+## Log Likelihood
+
+Calculate the LL values for your bigrams.
+
+```{r LL}
+#expected frequency
+aExp = (good_bad$a + good_bad$b)*(good_bad$a + good_bad$c)/
+  (good_bad$a + good_bad$b + good_bad$c + good_bad$d)
+
+LL = LL.collostr(good_bad$a, good_bad$b, good_bad$c, good_bad$d)
+LL1 = ifelse(good_bad$a < aExp, -LL, LL)
+LL1
+```
+
+Positive number means mutual attraction.
+
+## Pointwise Mutual Information
+
+Calculate the PMI for your bigrams. 
+
+```{r PMI}
+##r chunk
+PMI = log(good_bad$a / aExp)^2
+PMI
+```
+
+Ratio of the probability of XY given X divided by the probability of XY. Bad vibes has more probability.
+
+
+## Odds Ratio
+
+Calculate the OR for your bigrams. 
+
+```{r OR}
+##r chunk
+##r chunk
+logOR = log(good_bad$a*good_bad$d/(good_bad$b*good_bad$c))
+logOR
+```
+
+Ratio of the likelihood of XY and not XY to X and Y individually. High positive number means they are reltaed.
+
+## Interpret your results
+
+Given the statistics you have calculated above, what is the relation of your bigrams? Write a short summary of the results, making sure to answer the following: 
+
+- Are they related?
+- Do they attract or repel each other?
+- Are there differences between the separate bigrams?
+
+So, the result was interesting. XY are definitely related as shown by all of the statistics. They attract each other. However, the probabilty of good vibes coming together compared to good was less than the probability of bad vibes coming together compared to good.
+
+## Python Application
+
+Load all the libraries you will need for the Python section. You can also put in the functions for normalizing the text and calculating the top 5 related objects.
+
+```{python}
+##python chunk
+# done above
+##python chunk
+import nltk
+import re
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+stop_words = nltk.corpus.stopwords.words('english')
+
+def normalize_document(doc):
+    # lower case and remove special characters\whitespaces
+    doc = re.sub(r'[^a-zA-Z0-9\s]', '', doc, re.I|re.A)
+    doc = doc.lower()
+    doc = doc.strip()
+    # tokenize document
+    tokens = nltk.word_tokenize(doc)
+    # filter stopwords out of document
+    filtered_tokens = [token for token in tokens if token not in stop_words]
+    # re-create document from filtered tokens
+    doc = ' '.join(filtered_tokens)
+    return doc
+
+normalize_corpus = np.vectorize(normalize_document)
+```
+
+Import the `completed_clean_data` and convert to a `pandas` dataframe. This dataset includes a list of scientific research articles that all appeared when I searched for "databases", "corpus", and "linguistic norms". 
+
+```{python}
+##python chunk
+data = pd.read_csv("completed_clean_data.csv")
+data.head()
+```
+
+Use the normalizing text function to clean up the corpus - specifically, focus on the `ABSTRACT` column as our text to match.
+
+```{python}
+##python chunk
+norm_corpus = normalize_corpus(list(data['ABSTRACT']))
+len(norm_corpus)
+
+tf = TfidfVectorizer(ngram_range=(1, 2), min_df=2)
+tfidf_matrix = tf.fit_transform(norm_corpus)
+tfidf_matrix.shape
+```
+
+Calculate the cosine similarity between the abstracts of the attached documents. 
+
+```{python}
+##python chunk
+doc_sim = cosine_similarity(tfidf_matrix)
+doc_sim_df = pd.DataFrame(doc_sim)
+doc_sim_df.head()
+```
+
+Using our moving recommender - pick a single article (under `TITLE`) and recommend five other related articles.
+
+```{python}
+##python chunk
+##python chunk
+def movie_recommender(movie_title, movies, doc_sims):
+    # find movie id
+    movie_idx = np.where(movies == movie_title)[0][0]
+    # get movie similarities
+    movie_similarities = doc_sims.iloc[movie_idx].values
+    # get top 5 similar movie IDs
+    similar_movie_idxs = np.argsort(-movie_similarities)[1:6]
+    # get top 5 movies
+    similar_movies = movies[similar_movie_idxs]
+    # return the top 5 movies
+    return similar_movies
+
+movie_recommender("i dont believe in word senses", #name of film must be in dataset
+                  data["TITLE"].values, #all film names
+                  doc_sim_df #pd dataframe of similarity values
+                  )
+```
+
+

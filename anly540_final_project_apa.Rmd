@@ -1,0 +1,258 @@
+---
+title             : "Predicting reddit score using word2vec model"
+shorttitle        : "Predicting reddit score"
+
+author: 
+  - name          : "Laxman Panthi"
+    affiliation   : "1,2"
+    corresponding : yes    # Define only one corresponding author
+    address       : "Cleveland, Ohio 44130"
+    email         : "lpanthi@my.harrisburgu.edu"
+    
+affiliation:
+  - id            : "1"
+    institution   : "Harrisburg University of Science and Technology"
+  - id            : "2"
+    institution   : "Medical Mutual of Ohio"
+
+authornote: |
+  MS in Analytics, Department of Analytics, Harrisburg University
+
+  Data Engineer, Medical Mutual of Ohio
+keywords          : "reddit, score, prediction algorithm, deep learning"
+bibliography      : ["anly540-references.bib"]
+
+floatsintext      : no
+figurelist        : no
+tablelist         : no
+footnotelist      : no
+linenumbers       : no
+mask              : no
+draft             : no
+
+documentclass     : "apa6"
+classoption       : "man"
+output            : papaja::apa6_pdf
+---
+
+```{r setup, include = FALSE}
+library("papaja")
+```
+
+```{r analysis-preferences}
+# Seed for random number generation
+set.seed(42)
+knitr::opts_chunk$set(cache.extra = knitr::rand_seed)
+```
+
+```{r libaries_r, include=FALSE}
+##r chunk
+library(tidyverse)
+library(kableExtra)
+library(reticulate)
+use_condaenv("anly540")
+reticulate::py_config()
+```
+
+```{python libraries_py}
+##python chunk
+import nltk
+import gensim
+from nltk.corpus import abc
+import pandas as pd
+import numpy as np
+from bs4 import BeautifulSoup
+import re
+from nltk.corpus import stopwords
+from sklearn.metrics import classification_report
+from sklearn.metrics import accuracy_score
+```
+
+# Introduction
+
+Text data analytics has been an interesting conundrum in the area of analytics overall. Several methods have been utilized by experts over time and cutting edge algorithms coming in everyday to accurately depict the human level interpretation of the text data. There are different data sources available in the internet to analyse these kind of model with the top ones being social media platforms and forums like Twitter and Reddit.
+
+Reddit is a good source of information and opinion from people around the world. A study was done previously to predict faruadulent transactions happening over reddit. Unlike any other marketplace that has a proper rating system for buyers to decide, Reddit which is not a marketplace does not have a user rating system. However, transactions do happen on Reddit. Reddit neither keeps detailed personal information nor keeps a transaction history of its users. This is not helpful for its members when they want to make a transaction with another user. Several fraudulent transactions happen every day on Reddit. There is no proper way of differentiating legitimate sellers from fraud [@landstein_2020]. The data collected about the user such as the age of account, Karma (upvotes), Verified Email Address, Gold, Comments, Moderator, Subreddits visited  and Trophies were used to develop a model using Multiple Logistic Regression to predict if the user was Redditor or Scammer based on the Reddit’s categorization of these users. Redditors were identified from the transaction previously completed successfully and Scammer identified from the Reddit’s banned list.
+
+
+# Methods
+
+Texts can be represented into vector form to be able to use in the predictive models. As studied by the vector representation of the words and creating word similarity [@mikolov2013efficient], it is possible to find linkage between different words in a sequence. The word 2 vec model takes into consideration the sequential nature of high frequency of texts and creates model to represent those words as vectors[@mikolov2013efficient]. A model can be developed to use similar type of words in a prediction algorithm and utilized to performed advanced level of text analysis [@pagolu2016sentiment]. Logistic regression is then applied to the vectors such generated.
+
+# Problem Statement
+
+Although the people of internet are usually cautious about posts that are not safe for work, it is essential for Reddit to identify the records that are adult rated. We are solving a similar type of problem in this project. The dependent variable is the field called over_18 that signifies if the post is adult rated or not and we are looking to predict that using the text in the title field.
+
+# Dataset
+
+The data was downloaded from kaggle [@fontes_2020]. It conmtains all the posts related to COVID-19 pandemic in the r/dataisbeautiful subreddit of reddit.
+
+```{r load_data, include=FALSE}
+data <- read_csv("r_dataisbeautiful_posts.csv")
+data <- data%>%filter(score>100)
+```
+
+## Data Description
+- id - Unique identifier
+
+- title - Title of the reddit post
+
+- score - Reddit score
+
+- author - Author of the post
+
+- author_flair_text - Author's flair
+
+- removed_by - Who removed the post?
+
+- total_awards_received - Total number of awards
+
+- awarders - Total number of awarders
+
+- created_utc - Created at
+
+- full_link - Link of post
+
+- num_comments - Number of comments
+
+- over_18 - True if not safe for work (nsfw)
+
+## Data Exploration
+
+```{r data_exploration}
+# select only the variables we want to look at (take out the link,authr_flair_text,removed_by)
+data_select <-
+  data %>% select(-full_link, -removed_by, -author_flair_text)
+#cleanup missing values
+data_select$total_awards_received <-
+  if_else(is.na(data_select$total_awards_received),
+          0,
+          data_select$total_awards_received)
+
+top_posts <- data_select %>%
+  arrange(desc(num_comments)) %>%
+  head(n = 10) %>%
+  select(title, author, num_comments)
+
+kable(top_posts)
+```
+
+# Results and Discussion
+```{python}
+#load data
+data_py = r.data
+data_py = data_py[['title','over_18']].astype({'over_18': 'str'}).astype({'title':'str'})
+```
+
+```{python}
+#cleanup data
+REPLACE_BY_SPACE_RE = re.compile('[/(){}\[\]\|@,;]') #remove symbols with space
+BAD_SYMBOLS_RE = re.compile('[^0-9a-z #+_]') #take out symbols altogether
+STOPWORDS = set(stopwords.words('english')) #stopwords
+
+def clean_text(text):
+    text = BeautifulSoup(text, "lxml").text # HTML decoding
+    text = text.lower() # lowercase text
+    text = REPLACE_BY_SPACE_RE.sub(' ', text) # replace REPLACE_BY_SPACE_RE symbols by space in text
+    text = BAD_SYMBOLS_RE.sub('', text) # delete symbols which are in BAD_SYMBOLS_RE from text
+    text = ' '.join(word for word in text.split() if word not in STOPWORDS) # delete stopwors from text
+    return text
+    
+data_py['title'] = data_py['title'].apply(clean_text)
+```
+
+```{python}
+# train test split
+X = data_py['title']
+y = data_py['over_18']
+
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state = 42)
+```
+
+```{python}
+#tokenize data
+tokenized_train = [nltk.tokenize.word_tokenize(text)
+                   for text in X_train.to_list()]
+tokenized_test = [nltk.tokenize.word_tokenize(text)
+                   for text in X_test.to_list()]
+```
+
+```{python}
+# build word2vec model
+w2v_model = gensim.models.Word2Vec(tokenized_train, 
+                                   size=100, window=6,
+                                   min_count=2, iter=5, workers=4)
+```
+
+```{python}
+##python chunk
+def document_vectorizer(corpus, model, num_features):
+    vocabulary = set(model.wv.index2word)
+    
+    def average_word_vectors(words, model, vocabulary, num_features):
+        feature_vector = np.zeros((num_features,), dtype="float64")
+        nwords = 0.
+        
+        for word in words:
+            if word in vocabulary: 
+                nwords = nwords + 1.
+                feature_vector = np.add(feature_vector, model.wv[word])
+        if nwords:
+            feature_vector = np.divide(feature_vector, nwords)
+
+        return feature_vector
+
+    features = [average_word_vectors(tokenized_sentence, model, vocabulary, num_features)
+                    for tokenized_sentence in corpus]
+    return np.array(features)
+    
+# generate averaged word vector features from word2vec model
+avg_wv_train_features = document_vectorizer(corpus=tokenized_train,
+                                                    model=w2v_model,
+                                                     num_features=100)
+avg_wv_test_features = document_vectorizer(corpus=tokenized_test, 
+                                                    model=w2v_model,
+                                                    num_features=100)
+
+#define your outcomes
+my_tags = ['TRUE', 'FALSE']
+```
+
+```{python}
+##python chunk
+#build a log model
+from sklearn.linear_model import LogisticRegression
+logreg = LogisticRegression(solver='lbfgs', multi_class='ovr', max_iter=10000)
+
+#fit the data to the log model
+logreg = logreg.fit(avg_wv_train_features, y_train)
+```
+
+```{python}
+##python chunk
+#predict new data
+y_pred = logreg.predict(avg_wv_test_features)
+
+#print out results
+print('accuracy %s' % accuracy_score(y_pred, y_test))
+print(classification_report(y_test, y_pred,target_names=my_tags))
+```
+
+The accuracy is 98% which indicates that the over_18 field can be predicted using the text of the title of the post. Further work can be done in this model to include all the variables that were part of the original dataset.
+
+`r cite_r("r-references.bib")` has been used extensively for this study for data analysis and the creation of this report.
+
+\newpage
+
+# References
+```{r create_r-references}
+r_refs(file = "anly540-references.bib")
+```
+
+\begingroup
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+
+<div id="refs" custom-style="Bibliography"></div>
+\endgroup

@@ -1,0 +1,80 @@
+---
+title: 'Deep Learning'
+author: "Laxman Panthi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# load r libraries
+library(readr)
+library(reticulate)
+use_condaenv('anly540', required = T)
+py_config()
+```
+
+
+## The Model
+
+Since the deep models take a long time to run and often require a lot of computer power, we will just detail where you might use a deep learning model in your own work. 
+
+In this section, detail a classification task you might use a deep learning model for:
+
+### Load data
+Data was downloaded from kaggle. It has two columns:
+- Text: Twitter text from multiple twitter handles
+- Sentiment: Classification if the text was positive or negative.
+```{r}
+data <- read_csv("stock_sentiments.csv")
+head(data)
+```
+
+```{python}
+data_py = r.data
+
+# check how it looks in python
+data_py.head()
+```
+
+
+  - What are the class labels? (i.e. what are the groups?)
+
+The field Sentiment is the dependent variable with two classes 1 & -1 where 1 means positive sentiment and -1 means negative sentiment.
+
+```{python}
+# lets look at the value counts of the classification
+data_py.Sentiment.value_counts()
+```
+
+  - What would you use to predict the labels? Explain how text is involved in the prediction.
+
+The predictor is the text or tweet from twitter users. 
+We will have to clean the data - remove punctuations, remove stop words, lowercase etc.
+Then the data is tokenized to create a new feature 'Token' using word2vec or similar model.
+The data is then split to train & test (70-30 split)
+
+  - What type of model would you use (RNN, CNN, mix of both)?
+
+We will be using CNN in this case as the data will be in form of embedding matrix.
+
+  - How many layers would you include in your model?
+
+There will be six layers:
+Embedding layer
+DropOut
+Conv1D
+Maxpooling
+Dense
+Output using relu activation since it's a binary classfication model.
+
+  - What type of layers do you think might be effective to help you predict your classes? 
+
+We could add one more dropout and dense layer but it would require some testing. A simple model is usually better but if the data is complex we could add more layers.
+  
+
+

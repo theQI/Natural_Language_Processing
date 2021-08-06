@@ -1,0 +1,203 @@
+---
+title: 'Cluster Analysis'
+author: "Laxman Panthi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load the libraries + functions
+
+Load all the libraries or functions that you will use to for the rest of the assignment. It is helpful to define your libraries and functions at the top of a report, so that others can know what they need for the report to compile correctly.
+
+```{r libaries}
+##r chunk
+library(cluster)
+library(pvclust)
+library(reticulate)
+```
+
+## The Data
+
+The data is from a publication that I worked on in graduate school - focusing on the differences in semantic (meaning) and associative (context) memory. You can view the article if you are interested [here](https://www.aggieerin.com/pubs/maki%2008.pdf) - this dataset is a different one but based on the same ideas. Each of the measures provided is a type of distance measure - figuring out how related word-pairs are by examining their features or some other relation between them. They fall into three theoretical categories:
+
+- Association measures: fsg, bsg, was_comp
+- Semantic measures: cos, jcn, lesk, lch
+- Thematic/Text measures: lsa419, lsa300, bgl_item, bgl_comp, t1700, t900
+
+The main goal is to examine if the clusters match what is expected based on theory - and we will cover more of these models and how they work in the next several weeks. 
+
+The original dataset includes word pairs as the rows and distance measures as the columns. We want to cluster on the distance measures, so you will want to:
+
+- Load the data.
+- Use rownames(dataframe_name) = paste(dataframe_name[ , 1], dataframe_name[ , 2]) to set the rownames as the word-pairs from the data.
+- Delete column 1 and 2 from the data.
+- Flip the data using `t()`, as the clustering variables should be rows in the dataframe.
+
+```{r loaddata}
+##r chunk
+data <- read.csv("385pairs.csv")
+rownames(data) <- paste(data[ , 1], data[ , 2])
+data_filtered <- data[,-c(1:2)]
+data_t <- t(data_filtered)
+str(data_t)
+```
+
+## Create Distances
+
+While the data set includes popular distance measures, we still need to figure out how these distance measures are related to each other. Create distance measures in Euclidean distance.
+
+In looking at the distances - what seems immediately obvious about one of the variables?
+
+```{r distances}
+##r chunk
+data_dist <- dist(data_t,method="euclidean")
+data_dist
+```
+
+jcn is the farthest for almost all other variables (distances).
+
+## Create Cluster
+
+- Use hierarchical clustering to examine the relatedness of these measures. 
+- Create a dendogram plot of the results. 
+
+```{r cluster}
+##r chunk
+data_hierach <- hclust(data_dist, method = "ward.D2")
+plot(data_hierach,hang=-1)
+```
+One of the outlier jcn is set apart and is very far away, removing that observation and rerunning.
+
+## Try Again
+
+Clearly there's one variable that is pretty radically different.
+
+- Remove that variable from the original dataset.
+- Rerun the distance and cluster measures below.
+- Create a new plot of the cluster analysis (the branches may be hard to see but they are clearly separating out more).
+
+```{r redo}
+##r chunk
+data_t2 <- data_t[-c(12),]
+data_dist2 <- dist(data_t2,method="euclidean")
+data_hierach2 <- hclust(data_dist2, method = "ward.D2")
+plot(data_hierach2,hang=-1)
+```
+
+## Silhouette
+
+- Using `sapply` calculate the average silhouette distances for 2 to n-1 clusters on only the second cluster analysis.
+
+```{r}
+##r chunk
+sapply(2:11,function(x) summary(silhouette(cutree(data_hierach2,k=x),data_dist2))$avg.width)
+```
+2 clusters seems a good choice.
+
+## Examine those results
+
+- Replot the dendogram with cluster markers based on the highest silhouette value.
+- Interpret the results - do these match the theoretical listings we expected?
+
+```{r replot}
+##r chunk
+{plot(data_hierach2,hang=-1)
+rect.hclust(data_hierach2,k=2)}
+```
+lch (associative) & was_comp (semantic) end up in the same cluster whereas other variable in the other cluster, which means the types of distances do not support the theory behind it.
+## Snake Plots
+
+Make a snake plot of the results by plotting a random subset of 25 word pairs. In the notes we used the behavioral profile data, in this example you can use the original dataset without the bad variable. 
+  - Use something like random_data = dataframe[ , sample(1:ncol(dataframe), 25)].
+  - Then calculate the snake plot on that smaller dataset. 
+
+What word pairs appear to be most heavily tied to each cluster? Are there any interesting differences you see given the top and bottom most distinguishing pairs? 
+  - Note: you can run this a few times to see what you think over a wide variety of plots. Please detail you answer including the pairs, since the knitted version will be a different random run. 
+
+```{r snakeplot}
+random_data = data_t[,sample(1:ncol(data_t), 25)]
+
+##r chunk
+clustercut <- cutree(data_hierach2,k=2)
+cluster1 <- random_data[names(clustercut[clustercut==1]),]
+cluster2 <- random_data[names(clustercut[clustercut==2]),]
+
+differences <- colMeans(cluster1)-colMeans(cluster2)
+
+plot(sort(differences)*1.2,
+     1:length(differences),
+     type="n",
+     xlab="Cluster2 < ----- > Cluster 1",
+     yaxt="n",
+     ylab="")
+text(sort(differences),
+     1:length(differences),
+     names(sort(differences)))
+```
+So, we took a sample of 25 columns (words) from the dataset and ran the snake plot a few times. cathedral-church, pen-pencil seems to be the most obvious front liners in terms of association. There are almost none variables that have positive counts.
+
+## Bootstrapping
+
+- Use `pvclust` to validate your solution on the dataframe without the bad variable.
+- Plot the pv cluster. 
+- How well do our clusters appear to work? 
+
+```{r pvc}
+##r chunk
+data_pvc <- pvclust(t(data_t2),
+                    method.hclust="ward.D2",
+                    method.dist="euclidean")
+plot(data_pvc)
+```
+I think our cluster size = 2 was pretty good number of cluster. Most of the analysis seems to match our analysis.
+## Working with Python
+
+- Load the Python libraries and import the dataset from R without the bad variable you eliminated above. 
+
+```{pythonw load_everything}
+##python chunk 
+import scipy.cluster.hierarchy as sch
+from sklearn.cluster import AgglomerativeClustering
+data = r.data_filtered
+data_dist = sch.linkage(data,method="ward")
+```
+
+- Create a dendogram of the variables.
+
+```{pythonw py_dendogram}
+##python chunk
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
+plt.figure()
+plt.title("Hierarchical Clustering Dendogram")
+plt.xlabel("Causal Variable")
+plt.ylabel("Distance")
+sch.dendogram(data_dist,leaf_rotation=90.,leaf_font_size=8.,labels=r.cluster_labels)
+```
+
+- Calculate the silhouette silhouette distances for 2 to n-1 clusters.
+
+```{pythonw silhouette2}
+##python chunk 
+from sklearn import metrics
+from scipy.cluster.hierarchy import fluster
+
+max_d = 11
+
+clusters = fcluster(data,max_d,criterion='maxclust')
+metrics.silhouette_score(data_dist,clusters,metric='euclidean')
+```
+
+
+## Interpretation
+
+- Do the results appear the same for R and Python for silhouette scores?
+- Which do you feel was easier to use? 
+
+Python is much easier to use and the results are pretty much the same.
+For some reason, I am not getting the python chunck outputs while knitting.
